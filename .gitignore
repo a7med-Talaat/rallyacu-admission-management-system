@@ -2,3 +2,9 @@
 Thumbs.db
 node_modules/
 *.log
+
+# Private credentials and team secret files (NEVER push to GitHub)
+credentials.txt
+*credentials*.txt
+private_*.txt
+*passwords*.txt
