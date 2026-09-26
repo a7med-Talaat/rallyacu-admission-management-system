@@ -243,7 +243,11 @@
     }
   }
 
-  let GOOGLE_SHEET_URL = localStorage.getItem("rally_google_sheet_url") || "";
+  const DEFAULT_GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzs7rrDgL655xMlSbobgp8dNJDIj4VCTjRgOcsFv9TJRXHR-UPxa99lY2qj8QJ20OU7/exec";
+  let GOOGLE_SHEET_URL = localStorage.getItem("rally_google_sheet_url") || DEFAULT_GOOGLE_SHEET_URL;
+  if (!localStorage.getItem("rally_google_sheet_url")) {
+    localStorage.setItem("rally_google_sheet_url", DEFAULT_GOOGLE_SHEET_URL);
+  }
 
   function updateSheetBadge() {
     const textEl = document.getElementById("sheet-status-text");
@@ -1046,12 +1050,19 @@
 
     // 2. Fetch live data from Cloud and merge immediately
     syncWithCloud(true);
+    pullFromGoogleSheet();
 
-    // 3. Setup periodic background auto-sync polling every 10 seconds
+    // 3. Setup periodic background auto-sync polling 24/7
+    let tickCount = 0;
     if (syncIntervalTimer) clearInterval(syncIntervalTimer);
     syncIntervalTimer = setInterval(() => {
       if (!document.hidden) {
         syncWithCloud(true);
+        tickCount++;
+        // Poll Google Sheets every 30s in background
+        if (tickCount % 3 === 0) {
+          pullFromGoogleSheet();
+        }
       }
     }, 10000);
   }

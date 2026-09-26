@@ -499,7 +499,7 @@
             type="url"
             id="google-sheet-url-input"
             class="form-control"
-            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+            value="https://script.google.com/macros/s/AKfycbzs7rrDgL655xMlSbobgp8dNJDIj4VCTjRgOcsFv9TJRXHR-UPxa99lY2qj8QJ20OU7/exec"
             style="font-family: monospace; font-size: 0.85rem;"
           >
         </div>
@@ -946,7 +946,7 @@ function doPost(e) {
 
       document.getElementById("btn-open-sheet-modal").addEventListener("click", () => {
         if (sheetUrlInput) {
-          sheetUrlInput.value = localStorage.getItem("rally_google_sheet_url") || "";
+          sheetUrlInput.value = localStorage.getItem("rally_google_sheet_url") || "https://script.google.com/macros/s/AKfycbzs7rrDgL655xMlSbobgp8dNJDIj4VCTjRgOcsFv9TJRXHR-UPxa99lY2qj8QJ20OU7/exec";
         }
         sheetModal.classList.add("active");
       });
