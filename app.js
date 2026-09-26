@@ -243,10 +243,85 @@
     }
   }
 
-  // Save applicants (saves locally AND immediately pushes to cloud)
+  let GOOGLE_SHEET_URL = localStorage.getItem("rally_google_sheet_url") || "";
+
+  function updateSheetBadge() {
+    const textEl = document.getElementById("sheet-status-text");
+    if (!textEl) return;
+    if (GOOGLE_SHEET_URL) {
+      textEl.textContent = "Google Sheet (Active)";
+      if (textEl.parentElement) {
+        textEl.parentElement.style.borderColor = "var(--green)";
+        textEl.parentElement.style.color = "var(--green)";
+      }
+    } else {
+      textEl.textContent = "Google Sheet";
+      if (textEl.parentElement) {
+        textEl.parentElement.style.borderColor = "";
+        textEl.parentElement.style.color = "";
+      }
+    }
+  }
+
+  // Push all candidates to Google Sheet Web App
+  async function pushToGoogleSheet(applicantsList) {
+    if (!GOOGLE_SHEET_URL) return;
+    try {
+      await fetch(GOOGLE_SHEET_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify({
+          action: "syncAll",
+          applicants: applicantsList || []
+        })
+      });
+      console.log("Pushed to Google Sheet successfully.");
+    } catch (e) {
+      console.warn("Google Sheet push notice:", e);
+    }
+  }
+
+  // Pull candidates from Google Sheet Web App
+  async function pullFromGoogleSheet() {
+    if (!GOOGLE_SHEET_URL) {
+      showToast("Please enter and save your Google Apps Script URL first.", false);
+      return;
+    }
+    showToast("Pulling records from Google Sheet...");
+    try {
+      const resp = await fetch(GOOGLE_SHEET_URL);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const sheetApplicants = Array.isArray(data.applicants) ? data.applicants : (Array.isArray(data) ? data : []);
+      if (sheetApplicants.length > 0) {
+        // Merge with existing
+        const map = new Map();
+        sheetApplicants.forEach(a => { if (a && a.id) map.set(a.id, a); });
+        state.applicants.forEach(a => { if (a && a.id && !map.has(a.id)) map.set(a.id, a); });
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+        state.applicants = merged;
+        saveLocalOnly(merged);
+        pushToCloud(merged);
+        renderTable();
+        showToast(`Loaded ${sheetApplicants.length} candidates from Google Sheet!`);
+      } else {
+        showToast("Google Sheet is currently empty.");
+      }
+    } catch (err) {
+      console.error("Google Sheet pull error:", err);
+      showToast("Could not pull from Google Sheet. Check permissions.", false);
+    }
+  }
+
+  // Save applicants (saves locally AND immediately pushes to cloud and Google Sheet)
   function saveApplicants() {
     saveLocalOnly(state.applicants);
     pushToCloud(state.applicants);
+    pushToGoogleSheet(state.applicants);
   }
 
   // Load applicants from cache first, then cloud
@@ -811,6 +886,7 @@
     }
 
     renderTable();
+    updateSheetBadge();
 
     // 2. Fetch live data from Cloud and merge immediately
     syncWithCloud(true);
@@ -830,6 +906,15 @@
     syncCloud: function () {
       syncWithCloud(false);
     },
+    updateGoogleSheetUrl: function (url) {
+      GOOGLE_SHEET_URL = url || "";
+      updateSheetBadge();
+      if (GOOGLE_SHEET_URL) {
+        showToast("Google Sheet connected! Backing up candidates...");
+        pushToGoogleSheet(state.applicants);
+      }
+    },
+    pullFromGoogleSheet: pullFromGoogleSheet,
     getCurrentUserCommittee: function () {
       if (!state.user) return "Media";
       if (state.selectedCommittee && state.selectedCommittee !== "ALL") return state.selectedCommittee;

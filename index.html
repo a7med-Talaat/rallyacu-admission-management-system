@@ -6,7 +6,7 @@
   <title>Rally ACU · Interview & Admissions Portal</title>
   <meta name="description" content="Candidate interview tracking and admissions management portal for Rally Ahram Canadian University Season 2026-2027.">
   <link rel="icon" type="image/png" href="img/logos/rally-main-logo.png">
-  <link rel="stylesheet" href="style.css?v=3.1">
+  <link rel="stylesheet" href="style.css?v=4.0">
 </head>
 <body>
 
@@ -40,6 +40,12 @@
           <button class="btn btn-secondary btn-sm" id="btn-cloud-sync" title="Live Cloud Database Sync (Click to Refresh)" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 0.35rem 0.75rem;">
             <span id="cloud-sync-icon" style="display: inline-block;">🟢</span>
             <span id="cloud-sync-text">Cloud Live</span>
+          </button>
+
+          <!-- Google Sheet Live Backup & Sync -->
+          <button class="btn btn-secondary btn-sm" id="btn-open-sheet-modal" title="Connect / Manage Live Google Sheet" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+            <span>📊</span>
+            <span id="sheet-status-text">Google Sheet</span>
           </button>
 
           <div class="user-profile-badge">
@@ -473,6 +479,74 @@
     </div>
   </div>
 
+  <!-- ═══ MODAL: GOOGLE SHEET INTEGRATION ═══ -->
+  <div class="modal-overlay" id="sheet-sync-modal">
+    <div class="modal-box" style="max-width: 680px;">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">📊 Live Google Sheet Online Backup</h3>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+            Every single candidate and score automatically backed up online in your Google Sheet!
+          </div>
+        </div>
+        <button class="modal-close-btn" id="btn-close-sheet-modal">&times;</button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="google-sheet-url-input">Google Apps Script Web App URL</label>
+          <input
+            type="url"
+            id="google-sheet-url-input"
+            class="form-control"
+            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+            style="font-family: monospace; font-size: 0.85rem;"
+          >
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-primary" id="btn-save-sheet-url">
+            <span>💾 Save &amp; Sync Now</span>
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-pull-sheet-now">
+            <span>📥 Pull Candidates from Sheet</span>
+          </button>
+        </div>
+
+        <div style="background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--gold); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
+            <span>⚡</span> 60-Second Setup Guide
+          </h4>
+          <ol style="margin: 0; padding-left: 1.25rem; font-size: 0.825rem; color: var(--text-secondary); line-height: 1.6;">
+            <li>Open a new or existing Google Sheet in Google Drive.</li>
+            <li>In the top menu, click <strong>Extensions</strong> &rarr; <strong>Apps Script</strong>.</li>
+            <li>Delete existing code, paste the script below, and save (Ctrl+S).</li>
+            <li>Click <strong>Deploy</strong> (blue button, top right) &rarr; <strong>New deployment</strong>.</li>
+            <li>Click the gear icon ⚙️ next to "Select type", choose <strong>Web app</strong>.</li>
+            <li>Set <strong>Execute as:</strong> <em>Me</em>, and <strong>Who has access:</strong> <em>Anyone</em>.</li>
+            <li>Click <strong>Deploy</strong>, copy the Web app URL, paste it into the field above and click Save!</li>
+          </ol>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label class="form-label" style="margin: 0;">Google Apps Script Code</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-apps-script">
+              <span>📋 Copy Code</span>
+            </button>
+          </div>
+          <textarea
+            id="apps-script-code"
+            class="form-control"
+            rows="8"
+            readonly
+            style="font-family: monospace; font-size: 0.75rem; background: rgba(0,0,0,0.3); resize: vertical;"
+          ></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toast-container"></div>
 
@@ -489,8 +563,8 @@
   </footer>
 
   <!-- Scripts -->
-  <script src="auth.js?v=3.1"></script>
-  <script src="app.js?v=3.1"></script>
+  <script src="auth.js?v=4.0"></script>
+  <script src="app.js?v=4.0"></script>
 
   <script>
     // Master UI Controller
@@ -651,6 +725,95 @@
       });
       document.getElementById("btn-save-eval-modal").addEventListener("click", () => {
         window.RallyApp.saveEvaluationModal();
+      });
+
+      // Google Sheet Integration handlers
+      const sheetModal = document.getElementById("sheet-sync-modal");
+      const sheetUrlInput = document.getElementById("google-sheet-url-input");
+      const appsScriptTextarea = document.getElementById("apps-script-code");
+
+      const APPS_SCRIPT_SNIPPET = `function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok", applicants: [] }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var headers = rows[0];
+  var applicants = [];
+  for (var i = 1; i < rows.length; i++) {
+    var row = rows[i];
+    var obj = {};
+    for (var j = 0; j < headers.length; j++) {
+      obj[headers[j]] = row[j];
+    }
+    applicants.push(obj);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ status: "ok", applicants: applicants }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var payload = JSON.parse(e.postData.contents);
+    var applicants = payload.applicants || [];
+    var headers = [
+      "id", "fullName", "email", "phone", "faculty", "academicYear",
+      "firstChoice", "interviewCommittee", "secondChoice", "submissionDate",
+      "committeeStatus", "committeeScore", "committeeNotes",
+      "hrStatus", "hrScore", "hrNotes", "finalStatus", "updatedBy", "updatedAt"
+    ];
+    sheet.clear();
+    sheet.appendRow(headers);
+    for (var i = 0; i < applicants.length; i++) {
+      var app = applicants[i];
+      var row = [];
+      for (var j = 0; j < headers.length; j++) {
+        var val = app[headers[j]];
+        row.push(val !== undefined && val !== null ? val : "");
+      }
+      sheet.appendRow(row);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", count: applicants.length }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
+      if (appsScriptTextarea) {
+        appsScriptTextarea.value = APPS_SCRIPT_SNIPPET;
+      }
+
+      document.getElementById("btn-open-sheet-modal").addEventListener("click", () => {
+        if (sheetUrlInput) {
+          sheetUrlInput.value = localStorage.getItem("rally_google_sheet_url") || "";
+        }
+        sheetModal.classList.add("active");
+      });
+
+      document.getElementById("btn-close-sheet-modal").addEventListener("click", () => {
+        sheetModal.classList.remove("active");
+      });
+
+      document.getElementById("btn-copy-apps-script").addEventListener("click", () => {
+        navigator.clipboard.writeText(APPS_SCRIPT_SNIPPET).then(() => {
+          alert("Apps Script code copied to clipboard! Paste it into Extensions -> Apps Script in your Google Sheet.");
+        });
+      });
+
+      document.getElementById("btn-save-sheet-url").addEventListener("click", () => {
+        const val = sheetUrlInput.value.trim();
+        localStorage.setItem("rally_google_sheet_url", val);
+        window.RallyApp.updateGoogleSheetUrl(val);
+        sheetModal.classList.remove("active");
+      });
+
+      document.getElementById("btn-pull-sheet-now").addEventListener("click", () => {
+        window.RallyApp.pullFromGoogleSheet();
+        sheetModal.classList.remove("active");
       });
     });
   </script>
