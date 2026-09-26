@@ -894,17 +894,246 @@ body {
   color: var(--text-secondary);
 }
 
-/* Responsive adjustments */
+/* ══════════════════════════════════════════════════
+   COMPREHENSIVE MOBILE PHONE RESPONSIVE STYLES
+   Optimized for iPhones, Android phones, and small screens
+   ══════════════════════════════════════════════════ */
+
 @media (max-width: 768px) {
-  .welcome-hero {
-    flex-direction: column;
-    align-items: flex-start;
+  /* Prevent iOS Safari auto-zoom on input focus */
+  input, select, textarea, .form-control {
+    font-size: 16px !important;
   }
-  .sheet-controls-bar {
-    flex-direction: column;
-    align-items: stretch;
+
+  /* Header adjustments */
+  .header-container {
+    padding: 0.65rem 1rem;
+    gap: 0.5rem;
+  }
+  .brand-img-logo {
+    height: 32px;
+  }
+  .brand-title span:first-child {
+    font-size: 1.05rem;
+  }
+  .brand-title .sub {
+    font-size: 0.65rem;
+  }
+  .header-right {
+    gap: 0.5rem;
   }
   .header-right .user-name-text {
     display: none;
   }
+  .user-profile-badge {
+    padding: 4px 8px;
+    gap: 0.5rem;
+  }
+  .user-role-text {
+    font-size: 0.65rem;
+  }
+  .avatar-circle {
+    width: 26px;
+    height: 26px;
+    font-size: 0.72rem;
+  }
+  .btn-sm {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  /* Main viewport padding */
+  .dashboard-container {
+    padding: 1rem 0.85rem 3rem;
+  }
+
+  /* Welcome Hero Card */
+  .welcome-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1.25rem 1rem;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .welcome-left h2 {
+    font-size: 1.3rem;
+  }
+  .welcome-left p {
+    font-size: 0.825rem;
+  }
+  .welcome-trophy-container {
+    align-self: center;
+    padding: 0;
+  }
+  .welcome-trophy-img {
+    height: 52px;
+  }
+  .welcome-hero > div:last-child {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .welcome-hero > div:last-child .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Stats Grid: 2 clean columns on phones */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .stat-card {
+    padding: 0.9rem 1rem;
+  }
+  .stat-card-header {
+    margin-bottom: 0.4rem;
+  }
+  .stat-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.3px;
+  }
+  .stat-icon {
+    font-size: 1rem;
+  }
+  .stat-number {
+    font-size: 1.55rem;
+  }
+  .stat-subtext {
+    font-size: 0.68rem;
+  }
+
+  /* Controls & Filter Bar */
+  .sheet-controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 1rem;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .search-input-wrapper {
+    min-width: 0;
+    width: 100%;
+  }
+  .filters-group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 0.5rem;
+  }
+  .filters-group > div,
+  .filter-select,
+  .committee-locked-badge {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  /* Table Container & Horizontal Scroll on Phone */
+  .sheet-table-card {
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    position: relative;
+  }
+  .sheet-table {
+    min-width: 720px; /* guarantees columns don't crush on narrow screens */
+  }
+  .sheet-table th,
+  .sheet-table td {
+    padding: 0.75rem 0.65rem;
+  }
+  .quick-toggle-group {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+  .quick-toggle-btn {
+    padding: 5px 6px;
+    font-size: 0.7rem;
+    min-height: 32px;
+  }
+
+  /* Modals: Mobile bottom-sheet / full screen feel */
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end; /* Mobile drawer style */
+  }
+  .modal-box {
+    padding: 1.25rem 1rem;
+    max-height: 92vh;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    width: 100%;
+  }
+  .modal-header {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+  .modal-title {
+    font-size: 1.1rem;
+  }
+  .modal-box form > div:last-child,
+  .modal-box > div > div:last-child {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+  .modal-box .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  /* Login Card Mobile */
+  .login-view-wrapper {
+    padding: 1.5rem 1rem;
+  }
+  .login-card {
+    padding: 1.75rem 1.25rem;
+    border-radius: var(--radius-md);
+  }
+  .login-header h2 {
+    font-size: 1.35rem;
+  }
+
+  /* Toast notification on phone */
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: 16px;
+  }
+  .toast {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 0.8rem;
+    padding: 0.75rem 1rem;
+  }
+
+  /* Footer on phone */
+  .footer-logos-strip {
+    gap: 1.25rem;
+  }
+  .footer-logo-img {
+    height: 24px;
+  }
 }
+
+/* Extra small devices (< 400px, e.g. iPhone SE) */
+@media (max-width: 400px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .brand-title .sub {
+    display: none;
+  }
+  .welcome-left h2 {
+    font-size: 1.15rem;
+  }
+}
+
