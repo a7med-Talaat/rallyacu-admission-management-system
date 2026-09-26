@@ -141,17 +141,29 @@
   // ─── FIREBASE: Push all applicants ───────────────────────────
   const FIREBASE_DELETED_URL = "https://rally-acu-default-rtdb.firebaseio.com/deleted.json";
 
-  // Record a deleted ID in Firebase so all users see the deletion
+  // Record a deleted ID with a timestamp in Firebase
   async function recordDeletion(applicantId) {
     try {
       const safeKey = applicantId.replace(/[.$#\[\]/]/g, "_");
       await fetch(FIREBASE_DELETED_URL, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [safeKey]: true })
+        body: JSON.stringify({ [safeKey]: Date.now() })
       });
     } catch (e) {
       console.warn("Deletion record error:", e);
+    }
+  }
+
+  // Remove an ID from the deleted tombstone table (e.g. if newly added)
+  async function clearDeletionTombstone(applicantId) {
+    try {
+      const safeKey = applicantId.replace(/[.$#\[\]/]/g, "_");
+      await fetch(`https://rally-acu-default-rtdb.firebaseio.com/deleted/${safeKey}.json`, {
+        method: "DELETE"
+      });
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -203,24 +215,37 @@
       if (!candResp.ok) throw new Error("Firebase fetch HTTP " + candResp.status);
 
       const firebaseData = await candResp.json();
-      const deletedData = delResp.ok ? await delResp.json() : {};
+      const deletedData = delResp.ok ? await delResp.json() : null;
 
-      // Build set of all deleted ID variants
-      const deletedIds = new Set();
-      if (deletedData) {
-        Object.keys(deletedData).forEach(k => {
-          deletedIds.add(k);
-          deletedIds.add(k.replace(/_/g, "-")); // RALLY_MEDI_01 → RALLY-MEDI-01
+      // Build map of deleted IDs to their deletion timestamps
+      const deletedMap = new Map();
+      if (deletedData && typeof deletedData === "object") {
+        Object.entries(deletedData).forEach(([k, val]) => {
+          const time = typeof val === "number" ? val : Infinity;
+          deletedMap.set(k, time);
+          deletedMap.set(k.replace(/_/g, "-"), time);
         });
       }
 
-      // Firebase candidates minus deleted ones
+      function isCandidateDeleted(item) {
+        if (!item || !item.id) return false;
+        const key1 = item.id;
+        const key2 = item.id.replace(/[.$#\[\]/]/g, "_");
+        const delTime = deletedMap.has(key1) ? deletedMap.get(key1) : (deletedMap.has(key2) ? deletedMap.get(key2) : null);
+        if (delTime === null) return false;
+
+        // If candidate was created/updated AFTER the deletion timestamp, it's newly added!
+        const itemTime = new Date(item.updatedAt || item.submissionDate || 0).getTime();
+        if (itemTime > delTime) {
+          clearDeletionTombstone(item.id);
+          return false;
+        }
+        return true;
+      }
+
+      // Firebase candidates minus any deleted ones
       const cloudApplicants = firebaseData
-        ? Object.values(firebaseData).filter(a =>
-            a && a.id &&
-            !deletedIds.has(a.id) &&
-            !deletedIds.has(a.id.replace(/[.$#\[\]/]/g, "_"))
-          )
+        ? Object.values(firebaseData).filter(a => a && a.id && !isCandidateDeleted(a))
         : [];
 
       const localList = state.applicants && state.applicants.length > 0
@@ -238,8 +263,7 @@
       // 2. Merge local — skip anything deleted remotely, newer timestamp wins
       localList.forEach(localApp => {
         if (!localApp || !localApp.id) return;
-        // Skip if deleted remotely
-        if (deletedIds.has(localApp.id) || deletedIds.has(localApp.id.replace(/[.$#\[\]/]/g, "_"))) return;
+        if (isCandidateDeleted(localApp)) return;
 
         if (!map.has(localApp.id)) {
           map.set(localApp.id, localApp);
@@ -277,7 +301,6 @@
       isSyncing = false;
     }
   }
-
 
   // Save applicants — saves locally AND pushes to Firebase
   function saveApplicants() {
@@ -581,7 +604,14 @@
         if (n > maxNum) maxNum = n;
       }
     });
-    const newId = `RACU-2627-${String(maxNum + 1).padStart(3, "0")}`;
+    // Monotonic local counter so we never collide with recently deleted IDs
+    let localCounter = parseInt(localStorage.getItem("rally_last_candidate_num") || "0");
+    if (localCounter > maxNum) maxNum = localCounter;
+    const nextNum = maxNum + 1;
+    localStorage.setItem("rally_last_candidate_num", String(nextNum));
+
+    const newId = `RACU-2627-${String(nextNum).padStart(3, "0")}`;
+    clearDeletionTombstone(newId);
 
     const rawName = (formData.fullName || "").trim();
     const cleanName = rawName || `Candidate ${newId}`;
