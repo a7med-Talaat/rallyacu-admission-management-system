@@ -85,9 +85,10 @@
       fallback: {
         name: "Mariam Ahmed",
         committee: "Talent Management",
-        role: "Admin (Talent Management)",
-        badge: "HR / Admin",
-        isAdmin: true
+        allowedCommittees: ["Talent Management"],
+        role: "Head of Talent Management",
+        badge: "Talent Management",
+        isAdmin: false
       }
     },
     {
@@ -114,22 +115,71 @@
     },
     {
       id: "lead_bahr",
-      salt: "ba7fe7e916afb522c48326e8003febb0",
-      emailHash: "3c49980c46af93dcad5067c42a04f78f6484e4453fdb8db032b9aca0a63c5548",
+      salt: "d9722cd82c09af9e37701c82c2894fc2",
+      emailHash: "f142ce151d2ebe31ee287a79b68fd4e46d27bc8a65a45a4ada2289d5d2888e6a",
       passHashes: [
-        "0ca6dcbb8d22988d9f4a786e62bf9f62256ad222e84392811df0b73aaf95af70"
+        "e9464f308ecf8f9e0228547ca011682957a50eadd83432864ea11e28dedf6077"
       ],
       encryptedProfile: {
-        iv: "add075d01a593d055b35a335",
-        tag: "a4c63e55253eceeaea3359c1486a6321",
-        data: "c5812b2445f9c3b402f1b263ab19c723fa779c88ce8e12abaf78668e621e44fd09ab7a8d4d3d98b0e5015abd1fc669b9b2e9efb0d4a60a14d6fa0f7f03499357c1bda57513f09fc4965f66f415701eafdb835e72121949483f2151a7707d2b5ad6ad6fbef1c2e4a731b2ccc3cc1a42ec87924420bcd806b1e747b4fea4a0c0568f0d7dda53777cfe31ce06e06bbb48f317999336434a66cdc29d931a39823304949a58cade534183c2b7f4c1ddca5667f4e24c7080"
+        iv: "f7eee3cc128cae2b52a749cd",
+        tag: "3e31d32d4794825475804222013f4ab0",
+        data: "9e83c2dadefce8320c2dc84477a80f7a4bb02239560fd7aefda9e4d442232729fa5f2fda76ffdb462a5181f65fbcac4c2f860a4f178b4c399a79217f8eb5597ac40d2aa120ad64d53d9c83020921e9033c4c2827826294b31098ae8a564425d8fa9f10884f98a8a14d002632a1bb2cd07318097b927a2c13803fd8351b520bdcad176e08aea75b4478cd0c49e46448824fb2663d162f01ebb939ebdcab3b814ae231045205ccb97d1092c3f428a976829077737df5"
       },
       fallback: {
         name: "Bahr",
-        committee: "Media & Entrepreneur",
-        allowedCommittees: ["Media", "Entrepreneur"],
-        role: "Media & Entrepreneur Lead",
-        badge: "Media + Entrepreneur",
+        committee: "Operation & Talent Management",
+        allowedCommittees: [
+          "Operation",
+          "Talent Management"
+        ],
+        role: "HR Operation Lead",
+        badge: "Operation + HR",
+        isAdmin: false
+      }
+    },
+    {
+      id: "tm_boda",
+      salt: "996c6ccf2170874519c11d016676e50d",
+      emailHash: "373323fc142c5e4fecaa10a045ceba19f269e7cdc88ec1d48dd701c526c04e68",
+      passHashes: [
+        "26ddcf81a47d02bda0e451ca323dba8e08b1d60c90494d22c366778a9bb5b52c"
+      ],
+      encryptedProfile: {
+        iv: "3644db566b905438e33bc2d6",
+        tag: "285dfcd69eef98af93c65c322fd4a34a",
+        data: "21de1927ee55d12a27ce81115eee61ad927f13488b1bbd4d95b8b24a44cd7b3f1fce0f256d498c216222f13856ab5577c7d151b99effde930fd054e12d335f785b559e8198afe1ed6b55665523eb764253f08f90b2aeb4bf0f4a4b40520fbe79969b6aab91bc4ef899f5ebcf50aecfc04e55bfd11cd3d468ce0191dffbabf3db20f93000d32fe936bbd58ce28d2f8bde481122ce712abd4b23b60bb8395ba55c8cb31db70f"
+      },
+      fallback: {
+        name: "Boda",
+        committee: "Talent Management",
+        allowedCommittees: [
+          "Talent Management"
+        ],
+        role: "Talent Management Lead",
+        badge: "Talent Management",
+        isAdmin: false
+      }
+    },
+    {
+      id: "tm_omar",
+      salt: "fad8129922c009282d16430eb6116628",
+      emailHash: "225b46e1eda5cfaaeec664547ef17b2efe654e349c69e139a7a69ea190a24a30",
+      passHashes: [
+        "f0a14f473d4d27cd7f0b5f761919651c1c3c7eb03dd9798a5c950897fa84cb0c"
+      ],
+      encryptedProfile: {
+        iv: "6c5f8f77a0a057da253459ba",
+        tag: "921a3c471fd6d83ae9e28872beb62196",
+        data: "8d4eae38b7de51351bff7a6034bf117d13e2794effa75277b66e6a4f882378040cf10840d1700c9cb3272e8f95a9e06c0219b76b6b0f8f0f8109c52f08280980ab90fa2d4d68a1dd660d3c245b337b6b834ae6feb9ca619ca4919e4381fec3b2c7cb8252c7ecda9b480baa5423fc13305ab28003d9863b98ad63b54b5d3af02dcd8b44d63870d73897ff1e87d334a48cb1531bd89cbbcba178aa9284e573bdd5c8bd711cb8"
+      },
+      fallback: {
+        name: "Omar",
+        committee: "Talent Management",
+        allowedCommittees: [
+          "Talent Management"
+        ],
+        role: "Talent Management Lead",
+        badge: "Talent Management",
         isAdmin: false
       }
     },
