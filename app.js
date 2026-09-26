@@ -139,6 +139,22 @@
   }
 
   // ─── FIREBASE: Push all applicants ───────────────────────────
+  const FIREBASE_DELETED_URL = "https://rally-acu-default-rtdb.firebaseio.com/deleted.json";
+
+  // Record a deleted ID in Firebase so all users see the deletion
+  async function recordDeletion(applicantId) {
+    try {
+      const safeKey = applicantId.replace(/[.$#\[\]/]/g, "_");
+      await fetch(FIREBASE_DELETED_URL, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [safeKey]: true })
+      });
+    } catch (e) {
+      console.warn("Deletion record error:", e);
+    }
+  }
+
   async function pushToCloud(applicantsList) {
     try {
       updateSyncIndicator("syncing", "Saving to Firebase...");
@@ -171,25 +187,40 @@
     }
   }
 
-  // ─── FIREBASE: Fetch + merge, push new local records up ──────
+  // ─── FIREBASE: Fetch + merge, respect deletions ───────────────
   async function syncWithCloud(silent = false) {
     if (isSyncing) return;
     isSyncing = true;
     if (!silent) updateSyncIndicator("syncing", "Syncing...");
 
     try {
-      const resp = await fetch(FIREBASE_URL, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      // Fetch candidates AND deleted tombstones in parallel
+      const [candResp, delResp] = await Promise.all([
+        fetch(FIREBASE_URL, { headers: { "Accept": "application/json" } }),
+        fetch(FIREBASE_DELETED_URL, { headers: { "Accept": "application/json" } })
+      ]);
 
-      if (!resp.ok) throw new Error("Firebase fetch HTTP " + resp.status);
+      if (!candResp.ok) throw new Error("Firebase fetch HTTP " + candResp.status);
 
-      const firebaseData = await resp.json();
+      const firebaseData = await candResp.json();
+      const deletedData = delResp.ok ? await delResp.json() : {};
 
-      // Firebase returns an object (keyed by id) or null when empty
+      // Build set of all deleted ID variants
+      const deletedIds = new Set();
+      if (deletedData) {
+        Object.keys(deletedData).forEach(k => {
+          deletedIds.add(k);
+          deletedIds.add(k.replace(/_/g, "-")); // RALLY_MEDI_01 → RALLY-MEDI-01
+        });
+      }
+
+      // Firebase candidates minus deleted ones
       const cloudApplicants = firebaseData
-        ? Object.values(firebaseData).filter(Boolean)
+        ? Object.values(firebaseData).filter(a =>
+            a && a.id &&
+            !deletedIds.has(a.id) &&
+            !deletedIds.has(a.id.replace(/[.$#\[\]/]/g, "_"))
+          )
         : [];
 
       const localList = state.applicants && state.applicants.length > 0
@@ -199,25 +230,27 @@
       const map = new Map();
       let hasLocalUnsaved = false;
 
-      // 1. Start with Firebase data (source of truth)
+      // 1. Firebase is source of truth
       cloudApplicants.forEach(app => {
         if (app && app.id) map.set(app.id, app);
       });
 
-      // 2. Merge local — newer timestamp wins
+      // 2. Merge local — skip anything deleted remotely, newer timestamp wins
       localList.forEach(localApp => {
-        if (localApp && localApp.id) {
-          if (!map.has(localApp.id)) {
+        if (!localApp || !localApp.id) return;
+        // Skip if deleted remotely
+        if (deletedIds.has(localApp.id) || deletedIds.has(localApp.id.replace(/[.$#\[\]/]/g, "_"))) return;
+
+        if (!map.has(localApp.id)) {
+          map.set(localApp.id, localApp);
+          hasLocalUnsaved = true;
+        } else {
+          const cloudItem = map.get(localApp.id);
+          const localTime = new Date(localApp.updatedAt || localApp.submissionDate || 0).getTime();
+          const cloudTime = new Date(cloudItem.updatedAt || cloudItem.submissionDate || 0).getTime();
+          if (localTime > cloudTime) {
             map.set(localApp.id, localApp);
             hasLocalUnsaved = true;
-          } else {
-            const cloudItem = map.get(localApp.id);
-            const localTime = new Date(localApp.updatedAt || localApp.submissionDate || 0).getTime();
-            const cloudTime = new Date(cloudItem.updatedAt || cloudItem.submissionDate || 0).getTime();
-            if (localTime > cloudTime) {
-              map.set(localApp.id, localApp);
-              hasLocalUnsaved = true;
-            }
           }
         }
       });
@@ -229,7 +262,6 @@
       saveLocalOnly(merged);
       renderTable();
 
-      // Push any local-only changes back up to Firebase
       if (hasLocalUnsaved) {
         await pushToCloud(merged);
       }
@@ -245,6 +277,7 @@
       isSyncing = false;
     }
   }
+
 
   // Save applicants — saves locally AND pushes to Firebase
   function saveApplicants() {
@@ -599,9 +632,13 @@
     if (!item) return;
     if (confirm(`Are you sure you want to remove "${item.fullName}" from the admission sheet?`)) {
       state.applicants = state.applicants.filter(a => a.id !== applicantId);
-      saveApplicants();
+      saveLocalOnly(state.applicants);
       renderTable();
-      showToast(`Removed candidate from sheet.`);
+      showToast(`"${item.fullName}" removed from all accounts.`);
+      // Record deletion in Firebase so ALL users lose this candidate immediately
+      recordDeletion(applicantId).then(() => {
+        pushToCloud(state.applicants);
+      });
     }
   }
 
