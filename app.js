@@ -14,8 +14,12 @@
   ];
 
   const MASTER_STORAGE_KEY = "rally_applicants_v2";
-  const CLOUD_OBJECT_ID = "ff808181a09d98f701a0df4b88c51ff0";
-  const CLOUD_API_URL = `https://api.restful-api.dev/objects/${CLOUD_OBJECT_ID}`;
+
+  // ═══════════════════════════════════════════════════════════
+  //  FIREBASE REALTIME DATABASE  (replaces broken restful-api)
+  //  Real-time, free, works globally 24/7
+  // ═══════════════════════════════════════════════════════════
+  const FIREBASE_URL = "https://rally-acu-default-rtdb.firebaseio.com/candidates.json";
 
   let isSyncing = false;
   let syncIntervalTimer = null;
@@ -134,110 +138,109 @@
     });
   }
 
-  // Push candidates list to cloud database
+  // ─── FIREBASE: Push all applicants ───────────────────────────
   async function pushToCloud(applicantsList) {
     try {
-      updateSyncIndicator("syncing", "Saving to Cloud...");
-      const payload = {
-        name: "Rally ACU Candidates DB",
-        data: {
-          version: "2.0",
-          lastUpdated: new Date().toISOString(),
-          applicants: applicantsList || []
-        }
-      };
+      updateSyncIndicator("syncing", "Saving to Firebase...");
 
-      const resp = await fetch(CLOUD_API_URL, {
+      // Firebase stores as object keyed by candidate id
+      const firebasePayload = {};
+      (applicantsList || []).forEach(a => {
+        if (a && a.id) {
+          // Firebase keys cannot contain . $ # [ ] /
+          const safeKey = a.id.replace(/[.$#\[\]/]/g, "_");
+          firebasePayload[safeKey] = a;
+        }
+      });
+
+      const resp = await fetch(FIREBASE_URL, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(firebasePayload)
       });
 
       if (resp.ok) {
-        updateSyncIndicator("success", `Cloud Live (${(applicantsList || []).length})`);
+        updateSyncIndicator("success", `Live ✓ (${(applicantsList || []).length})`);
       } else {
-        console.warn("Cloud save HTTP status:", resp.status);
+        console.warn("Firebase save HTTP status:", resp.status);
         updateSyncIndicator("error", "Sync Pending");
       }
     } catch (e) {
-      console.warn("Cloud push notice:", e);
+      console.warn("Firebase push error:", e);
       updateSyncIndicator("error", "Sync Pending");
     }
   }
 
-  // Fetch candidates from live cloud and merge with local cache
+  // ─── FIREBASE: Fetch + merge, push new local records up ──────
   async function syncWithCloud(silent = false) {
     if (isSyncing) return;
     isSyncing = true;
-    if (!silent) updateSyncIndicator("syncing", "Syncing Cloud...");
+    if (!silent) updateSyncIndicator("syncing", "Syncing...");
 
     try {
-      const resp = await fetch(CLOUD_API_URL, {
+      const resp = await fetch(FIREBASE_URL, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
 
-      if (!resp.ok) {
-        throw new Error("Cloud fetch returned HTTP " + resp.status);
-      }
+      if (!resp.ok) throw new Error("Firebase fetch HTTP " + resp.status);
 
-      const cloudObj = await resp.json();
-      const cloudData = cloudObj && cloudObj.data ? cloudObj.data : cloudObj;
-      const cloudApplicants = Array.isArray(cloudData.applicants) ? cloudData.applicants : (Array.isArray(cloudData) ? cloudData : []);
+      const firebaseData = await resp.json();
 
-      // Get local candidates
-      const localList = state.applicants && state.applicants.length > 0 ? state.applicants : getAllApplicantsFromStorage();
-      
+      // Firebase returns an object (keyed by id) or null when empty
+      const cloudApplicants = firebaseData
+        ? Object.values(firebaseData).filter(Boolean)
+        : [];
+
+      const localList = state.applicants && state.applicants.length > 0
+        ? state.applicants
+        : getAllApplicantsFromStorage();
+
       const map = new Map();
-      let hasLocalUnsavedToCloud = false;
+      let hasLocalUnsaved = false;
 
-      // 1. Load all records from Cloud
+      // 1. Start with Firebase data (source of truth)
       cloudApplicants.forEach(app => {
         if (app && app.id) map.set(app.id, app);
       });
 
-      // 2. Merge local records: if user or friend added candidates locally, merge into cloud!
+      // 2. Merge local — newer timestamp wins
       localList.forEach(localApp => {
         if (localApp && localApp.id) {
           if (!map.has(localApp.id)) {
-            // New locally created candidate -> merge and upload to cloud
             map.set(localApp.id, localApp);
-            hasLocalUnsavedToCloud = true;
+            hasLocalUnsaved = true;
           } else {
-            // Both exist: check timestamp or updated details
             const cloudItem = map.get(localApp.id);
             const localTime = new Date(localApp.updatedAt || localApp.submissionDate || 0).getTime();
             const cloudTime = new Date(cloudItem.updatedAt || cloudItem.submissionDate || 0).getTime();
             if (localTime > cloudTime) {
               map.set(localApp.id, localApp);
-              hasLocalUnsavedToCloud = true;
+              hasLocalUnsaved = true;
             }
           }
         }
       });
 
       const merged = Array.from(map.values());
-      // Sort newest first
       merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
 
       state.applicants = merged;
       saveLocalOnly(merged);
       renderTable();
 
-      // If local had candidates not in cloud yet (e.g. friend added on phone), push to cloud now!
-      if (hasLocalUnsavedToCloud) {
+      // Push any local-only changes back up to Firebase
+      if (hasLocalUnsaved) {
         await pushToCloud(merged);
       }
 
-      updateSyncIndicator("success", `Cloud Live (${merged.length})`);
+      updateSyncIndicator("success", `Live ✓ (${merged.length})`);
       if (!silent) {
-        showToast(`Cloud Synced: ${merged.length} total candidates in system`);
+        showToast(`Synced: ${merged.length} candidates in database`);
       }
     } catch (err) {
-      console.warn("Cloud sync warning:", err);
-      updateSyncIndicator("error", "Local Mode");
+      console.warn("Firebase sync warning:", err);
+      updateSyncIndicator("error", "Offline Mode");
     } finally {
       isSyncing = false;
     }
