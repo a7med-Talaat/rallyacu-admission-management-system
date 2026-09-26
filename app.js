@@ -5,6 +5,16 @@
  */
 
 (function () {
+  const ALL_COMMITTEES = [
+    "Media",
+    "Entrepreneur",
+    "Operation",
+    "Business Development",
+    "Talent Management"
+  ];
+
+  const MASTER_STORAGE_KEY = "rally_applicants_v2";
+
   // Dedicated Database Table Key per Committee
   function getCommitteeDbKey(committeeName) {
     const slug = (committeeName || "general").toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -25,6 +35,33 @@
   function saveCommitteeDb(committeeName, list) {
     const key = getCommitteeDbKey(committeeName);
     localStorage.setItem(key, JSON.stringify(list || []));
+  }
+
+  function getAllApplicantsFromStorage() {
+    const raw = localStorage.getItem(MASTER_STORAGE_KEY);
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {
+        return [];
+      }
+    }
+    // Backward compatibility: collect from all committee DB keys if master not yet created
+    let legacy = [];
+    ALL_COMMITTEES.forEach(c => {
+      const recs = loadCommitteeDb(c);
+      legacy = legacy.concat(recs);
+    });
+    // Deduplicate by ID
+    const unique = [];
+    const ids = new Set();
+    for (const item of legacy) {
+      if (item && item.id && !ids.has(item.id)) {
+        ids.add(item.id);
+        unique.push(item);
+      }
+    }
+    return unique;
   }
 
   // Application State
@@ -55,28 +92,24 @@
     }, 3200);
   }
 
-  // Load applicants from the user's committee database tables
+  // Load applicants from unified storage
   function loadApplicants() {
-    // Clear any previous legacy mock store
     localStorage.removeItem("rally_acu_interview_sheet_data_v1");
-
-    const userAllowed = state.user && state.user.allowedCommittees ? state.user.allowedCommittees : (state.user && state.user.committee ? [state.user.committee] : ["General"]);
-    
-    let combined = [];
-    userAllowed.forEach(comm => {
-      const records = loadCommitteeDb(comm);
-      combined = combined.concat(records);
-    });
-
-    state.applicants = combined;
+    state.applicants = getAllApplicantsFromStorage();
   }
 
-  // Save applicants back to their respective committee database tables
+  // Save applicants back to unified storage and per-committee tables
   function saveApplicants() {
-    const userAllowed = state.user && state.user.allowedCommittees ? state.user.allowedCommittees : (state.user && state.user.committee ? [state.user.committee] : ["General"]);
+    localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(state.applicants || []));
 
-    userAllowed.forEach(comm => {
-      const commItems = state.applicants.filter(a => a.firstChoice === comm);
+    // Also sync to per-committee tables for any legacy references
+    ALL_COMMITTEES.forEach(comm => {
+      const commItems = state.applicants.filter(a =>
+        a.firstChoice === comm ||
+        a.interviewCommittee === comm ||
+        a.secondChoice === comm ||
+        a.addedByCommittee === comm
+      );
       saveCommitteeDb(comm, commItems);
     });
   }
@@ -98,19 +131,13 @@
     return "In Review";
   }
 
-  // Render Stats Cards for logged-in user's committee(s)
+  // Render Stats Cards for logged-in user's view
   function updateStats() {
-    const userAllowed = state.user && state.user.allowedCommittees ? state.user.allowedCommittees : (state.user && state.user.committee ? [state.user.committee] : []);
-    let list = state.applicants.filter(a => userAllowed.includes(a.firstChoice));
-
-    if (state.selectedCommittee !== "ALL") {
-      list = list.filter(a => a.firstChoice === state.selectedCommittee);
-    }
-
+    const list = getFilteredApplicants();
     const total = list.length;
     const commAcc = list.filter(a => a.committeeStatus === "Accepted").length;
     const hrAcc = list.filter(a => a.hrStatus === "Accepted").length;
-    const fullyAcc = list.filter(a => a.finalStatus.includes("Fully Accepted")).length;
+    const fullyAcc = list.filter(a => a.finalStatus.includes("Fully Accepted") || a.finalStatus.includes("Fully")).length;
     const pending = list.filter(a => a.committeeStatus === "Pending" || a.hrStatus === "Pending").length;
 
     const elTotal = document.getElementById("stat-total");
@@ -126,20 +153,39 @@
     if (elPending) elPending.textContent = pending;
   }
 
-  // Filter applicants - strictly scoped to user's allowed committees
+  // Filter applicants - scoped to user's allowed committees, search query & filters
   function getFilteredApplicants() {
     const q = state.searchQuery.trim().toLowerCase();
     const userAllowed = state.user && state.user.allowedCommittees ? state.user.allowedCommittees : (state.user && state.user.committee ? [state.user.committee] : []);
+    const isPresident = state.user && (state.user.isAdmin || userAllowed.length >= 5);
 
     return state.applicants.filter(app => {
-      // Access Control: User can ONLY view their permitted committees
-      if (userAllowed.length && !userAllowed.includes(app.firstChoice)) {
-        return false;
+      // Access Control:
+      // President sees all.
+      // Other users see applicants where:
+      // - The candidate's assigned committee (firstChoice) is in userAllowed
+      // - OR candidate is being interviewed in a committee in userAllowed (interviewCommittee)
+      // - OR candidate's secondary choice is in userAllowed
+      // - OR candidate was added by this committee or this user
+      if (!isPresident && userAllowed.length > 0) {
+        const canView =
+          userAllowed.includes(app.firstChoice) ||
+          userAllowed.includes(app.interviewCommittee) ||
+          userAllowed.includes(app.secondChoice) ||
+          (app.addedByCommittee && userAllowed.includes(app.addedByCommittee)) ||
+          (app.addedBy && app.addedBy === state.user.name);
+
+        if (!canView) return false;
       }
-      // Specific committee toggle if user has multiple allowed
-      if (state.selectedCommittee !== "ALL" && app.firstChoice !== state.selectedCommittee) {
-        return false;
+
+      // Committee filter dropdown (if user toggled specific committee)
+      if (state.selectedCommittee !== "ALL") {
+        const matchesComm =
+          app.firstChoice === state.selectedCommittee ||
+          app.interviewCommittee === state.selectedCommittee;
+        if (!matchesComm) return false;
       }
+
       // Status filter
       if (state.selectedStatus === "ACCEPTED" && !app.finalStatus.includes("Accepted")) {
         return false;
@@ -150,6 +196,7 @@
       if (state.selectedStatus === "REJECTED" && app.finalStatus !== "Rejected") {
         return false;
       }
+
       // Search query
       if (q) {
         const match =
@@ -157,9 +204,12 @@
           (app.email && app.email.toLowerCase().includes(q)) ||
           (app.phone && app.phone.includes(q)) ||
           (app.faculty && app.faculty.toLowerCase().includes(q)) ||
+          (app.firstChoice && app.firstChoice.toLowerCase().includes(q)) ||
+          (app.interviewCommittee && app.interviewCommittee.toLowerCase().includes(q)) ||
           (app.id && app.id.toLowerCase().includes(q));
         if (!match) return false;
       }
+
       return true;
     });
   }
@@ -170,8 +220,6 @@
     if (!tbody) return;
 
     const list = getFilteredApplicants();
-    const isHead = !state.user.isAdmin;
-    const headCommittee = state.user.committee;
 
     if (list.length === 0) {
       const isSearching = !!state.searchQuery || state.selectedStatus !== "ALL";
@@ -179,7 +227,7 @@
         <tr>
           <td colspan="7" style="text-align: center; padding: 3.5rem 1rem; color: var(--text-muted);">
             <div style="font-size: 2.4rem; margin-bottom: 0.6rem;">${isSearching ? "🔍" : "📋"}</div>
-            <div style="font-weight: 700; font-size: 1.05rem; color: var(--text-primary);">${isSearching ? "No applicants match your search" : "No candidates in this committee database yet"}</div>
+            <div style="font-weight: 700; font-size: 1.05rem; color: var(--text-primary);">${isSearching ? "No applicants match your search" : "No candidates in this committee sheet yet"}</div>
             <div style="font-size: 0.85rem; margin-top: 6px; color: var(--text-secondary);">${isSearching ? "Try adjusting your search query or status filter." : "Click the <strong>'+ Add Candidate'</strong> button above to start entering applicants."}</div>
           </td>
         </tr>
@@ -188,21 +236,14 @@
       return;
     }
 
-    tbody.innerHTML = list.map((app, index) => {
-      // Status badge colors
-      const getBadgeClass = (status) => {
-        if (status === "Accepted") return "accepted";
-        if (status === "Rejected") return "rejected";
-        return "pending";
-      };
-
+    tbody.innerHTML = list.map((app) => {
       const finalBadgeClass = app.finalStatus.includes("Fully")
         ? "accepted"
         : app.finalStatus === "Rejected"
         ? "rejected"
         : "pending";
 
-      const committeeLabel = app.firstChoice + " Interview";
+      const commDisplayName = app.interviewCommittee || app.firstChoice || "Committee";
 
       return `
         <tr data-id="${app.id}">
@@ -220,14 +261,29 @@
             </div>
           </td>
           <td>
-            <span class="status-badge" style="background: rgba(244,63,94,0.12); color: var(--red); border: 1px solid rgba(244,63,94,0.25);">
-              ${app.firstChoice || 'General'}
-            </span>
-            ${app.secondChoice && app.secondChoice !== '—' ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">2nd: ${app.secondChoice}</div>` : ""}
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <div>
+                <span class="status-badge" style="background: rgba(244,63,94,0.12); color: var(--red); border: 1px solid rgba(244,63,94,0.25); font-weight: 700;">
+                  🎯 ${app.firstChoice || 'General'}
+                </span>
+              </div>
+              ${app.interviewCommittee && app.interviewCommittee !== app.firstChoice ? `
+                <div style="font-size: 0.75rem; color: #38bdf8; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                  <span>🎙️ In:</span>
+                  <span style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.25); padding: 1px 6px; border-radius: 4px;">${app.interviewCommittee}</span>
+                </div>
+              ` : ''}
+              ${app.secondChoice && app.secondChoice !== '—' && app.secondChoice !== '' ? `
+                <div style="font-size: 0.72rem; color: var(--text-muted);">2nd: ${app.secondChoice}</div>
+              ` : ''}
+            </div>
           </td>
           <!-- Committee Interview Column -->
           <td>
             <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">
+                ${commDisplayName} Technical
+              </div>
               <div class="quick-toggle-group">
                 <button
                   class="quick-toggle-btn ${app.committeeStatus === 'Accepted' ? 'active-accepted' : ''}"
@@ -333,21 +389,32 @@
     showToast(`Updated ${item.fullName.split(' ')[0]}'s HR status to "${newStatus}"`);
   }
 
-  // Add new applicant to sheet (all fields are completely optional)
+  // Add new applicant to sheet (all fields are completely optional & customizable)
   function addNewApplicant(formData) {
     formData = formData || {};
-    const newId = `RACU-2627-${String(state.applicants.length + 1).padStart(3, "0")}`;
+    
+    // Find next safe unique ID
+    let maxNum = 0;
+    state.applicants.forEach(a => {
+      const match = a.id && a.id.match(/RACU-2627-(\d+)/);
+      if (match) {
+        const n = parseInt(match[1]);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    const newId = `RACU-2627-${String(maxNum + 1).padStart(3, "0")}`;
+
     const rawName = (formData.fullName || "").trim();
     const cleanName = rawName || `Candidate ${newId}`;
     const cleanEmail = (formData.email || "").trim() || "—";
     const cleanPhone = (formData.phone || "").trim() || "—";
     const cleanFaculty = (formData.faculty || "").trim() || "General / ACU";
     const cleanYear = (formData.academicYear || "").trim() || "—";
-    const userAllowed = state.user && state.user.allowedCommittees ? state.user.allowedCommittees : (state.user && state.user.committee ? [state.user.committee] : ["General"]);
-    let cleanFirstChoice = (formData.firstChoice || "").trim();
-    if (!userAllowed.includes(cleanFirstChoice)) {
-      cleanFirstChoice = userAllowed[0];
-    }
+
+    const userDefaultComm = (state.user && state.user.allowedCommittees && state.user.allowedCommittees[0]) || (state.user && state.user.committee) || "Media";
+    // Allow user to freely choose ANY committee for assigned and interview
+    const cleanFirstChoice = (formData.firstChoice || "").trim() || userDefaultComm;
+    const cleanInterviewCommittee = (formData.interviewCommittee || "").trim() || userDefaultComm;
     const cleanSecondChoice = (formData.secondChoice || "").trim() || "—";
 
     const newApp = {
@@ -358,7 +425,10 @@
       faculty: cleanFaculty,
       academicYear: cleanYear,
       firstChoice: cleanFirstChoice,
+      interviewCommittee: cleanInterviewCommittee,
       secondChoice: cleanSecondChoice,
+      addedByCommittee: userDefaultComm,
+      addedBy: (state.user && state.user.name) || "Interviewer",
       submissionDate: new Date().toISOString().split("T")[0],
       committeeStatus: formData.committeeStatus || "Pending",
       committeeNotes: (formData.committeeNotes || "").trim(),
@@ -373,7 +443,7 @@
     state.applicants.unshift(newApp);
     saveApplicants();
     renderTable();
-    showToast(`Added: ${newApp.fullName} to the sheet!`);
+    showToast(`Added: ${newApp.fullName} (Assigned: ${newApp.firstChoice} · Interview: ${newApp.interviewCommittee})`);
   }
 
   // Delete applicant
@@ -398,7 +468,13 @@
     if (!modal) return;
 
     document.getElementById("eval-candidate-name").textContent = item.fullName;
-    document.getElementById("eval-candidate-info").textContent = `${item.id} • ${item.faculty} (${item.academicYear}) • First Choice: ${item.firstChoice}`;
+    document.getElementById("eval-candidate-info").textContent = `${item.id} • ${item.faculty} (${item.academicYear}) • Assigned: ${item.firstChoice}`;
+
+    const evalFirst = document.getElementById("eval-firstChoice");
+    if (evalFirst) evalFirst.value = item.firstChoice || "Media";
+
+    const evalInterview = document.getElementById("eval-interviewCommittee");
+    if (evalInterview) evalInterview.value = item.interviewCommittee || item.firstChoice || "Media";
 
     // Fill form
     document.getElementById("eval-comm-status").value = item.committeeStatus;
@@ -409,8 +485,9 @@
     document.getElementById("eval-hr-score").value = item.hrScore || "";
     document.getElementById("eval-hr-notes").value = item.hrNotes || "";
 
-    // Set Committee label dynamically (e.g. Media Interview vs Entrepreneur Interview)
-    document.getElementById("eval-comm-heading").textContent = `${item.firstChoice} Interview`;
+    // Set Committee label dynamically
+    const commLabel = item.interviewCommittee || item.firstChoice || "Committee";
+    document.getElementById("eval-comm-heading").textContent = `${commLabel} Interview`;
 
     modal.classList.add("active");
   }
@@ -425,6 +502,12 @@
     if (!state.evaluatingApplicantId) return;
     const item = state.applicants.find(a => a.id === state.evaluatingApplicantId);
     if (!item) return;
+
+    const evalFirst = document.getElementById("eval-firstChoice");
+    if (evalFirst) item.firstChoice = evalFirst.value;
+
+    const evalInterview = document.getElementById("eval-interviewCommittee");
+    if (evalInterview) item.interviewCommittee = evalInterview.value;
 
     item.committeeStatus = document.getElementById("eval-comm-status").value;
     item.committeeScore = document.getElementById("eval-comm-score").value ? parseInt(document.getElementById("eval-comm-score").value) : null;
@@ -458,8 +541,9 @@
       "Phone",
       "Faculty",
       "Academic Year",
-      "1st Choice Committee",
-      "2nd Choice Committee",
+      "Assigned Committee",
+      "Interviewing In",
+      "Secondary Choice",
       "Submission Date",
       "Committee Interview Status",
       "Committee Score (1-10)",
@@ -485,6 +569,7 @@
       escapeCsv(a.faculty),
       escapeCsv(a.academicYear),
       escapeCsv(a.firstChoice),
+      escapeCsv(a.interviewCommittee || a.firstChoice),
       escapeCsv(a.secondChoice),
       escapeCsv(a.submissionDate),
       escapeCsv(a.committeeStatus),
@@ -537,7 +622,6 @@
     const headerCommLabel = document.getElementById("header-comm-label");
 
     if (user.allowedCommittees.length > 1) {
-      // Multi-committee user (e.g. Bahr: Media + Entrepreneur)
       if (lockedBadgeWrap) lockedBadgeWrap.style.display = "none";
       if (multiCommSelect) {
         multiCommSelect.style.display = "inline-block";
@@ -557,19 +641,7 @@
       if (headerCommLabel) {
         headerCommLabel.textContent = "Committee Interview";
       }
-
-      // Add Modal: allow selecting among permitted committees
-      const addField = document.getElementById("add-firstChoice");
-      if (addField) {
-        const parent = addField.parentElement;
-        parent.innerHTML = `
-          <select id="add-firstChoice" class="form-control">
-            ${user.allowedCommittees.map(c => `<option value="${c}">${c}</option>`).join("")}
-          </select>
-        `;
-      }
     } else {
-      // Single-committee user
       if (lockedBadgeWrap) {
         lockedBadgeWrap.style.display = "inline-flex";
         const badge = document.getElementById("locked-committee-badge");
@@ -579,11 +651,16 @@
       if (headerCommLabel) {
         headerCommLabel.textContent = `${user.allowedCommittees[0]} Interview`;
       }
+    }
 
-      const addField = document.getElementById("add-firstChoice");
-      if (addField) {
-        addField.value = user.allowedCommittees[0];
-      }
+    // Set initial defaults for Add Candidate modal WITHOUT restricting options
+    const addFirst = document.getElementById("add-firstChoice");
+    if (addFirst && user.allowedCommittees && user.allowedCommittees[0]) {
+      addFirst.value = user.allowedCommittees[0];
+    }
+    const addInterview = document.getElementById("add-interviewCommittee");
+    if (addInterview && user.allowedCommittees && user.allowedCommittees[0]) {
+      addInterview.value = user.allowedCommittees[0];
     }
 
     renderTable();
@@ -592,6 +669,11 @@
   // Expose methods to global scope
   window.RallyApp = {
     initDashboard: initUserDashboard,
+    getCurrentUserCommittee: function () {
+      if (!state.user) return "Media";
+      if (state.selectedCommittee && state.selectedCommittee !== "ALL") return state.selectedCommittee;
+      return (state.user.allowedCommittees && state.user.allowedCommittees[0]) || state.user.committee || "Media";
+    },
     toggleCommitteeInterview,
     toggleHRInterview,
     addNewApplicant,

@@ -302,21 +302,39 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="add-firstChoice">Assigned Committee</label>
-            <input type="text" id="add-firstChoice" class="form-control" readonly style="background: rgba(255,255,255,0.06); cursor: not-allowed; font-weight: 700; color: var(--red-bright);" value="Media">
+            <label class="form-label" for="add-firstChoice">Assigned / Target Committee</label>
+            <select id="add-firstChoice" class="form-control" style="font-weight: 600;">
+              <option value="Media">Media</option>
+              <option value="Entrepreneur">Entrepreneur</option>
+              <option value="Operation">Operation</option>
+              <option value="Business Development">Business Development</option>
+              <option value="Talent Management">Talent Management</option>
+            </select>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="add-secondChoice">Secondary Committee Choice</label>
-          <select id="add-secondChoice" class="form-control">
-            <option value="">None / Open to any</option>
-            <option value="Media">Media</option>
-            <option value="Entrepreneur">Entrepreneur</option>
-            <option value="Operation">Operation</option>
-            <option value="Business Development">Business Development</option>
-            <option value="Talent Management">Talent Management</option>
-          </select>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="add-interviewCommittee">Interviewing Committee (Sheet)</label>
+            <select id="add-interviewCommittee" class="form-control" style="font-weight: 600;">
+              <option value="Media">Media</option>
+              <option value="Entrepreneur">Entrepreneur</option>
+              <option value="Operation">Operation</option>
+              <option value="Business Development">Business Development</option>
+              <option value="Talent Management">Talent Management</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="add-secondChoice">Secondary Choice (Optional)</label>
+            <select id="add-secondChoice" class="form-control">
+              <option value="">None / Open to any</option>
+              <option value="Media">Media</option>
+              <option value="Entrepreneur">Entrepreneur</option>
+              <option value="Operation">Operation</option>
+              <option value="Business Development">Business Development</option>
+              <option value="Talent Management">Talent Management</option>
+            </select>
+          </div>
         </div>
 
         <div class="form-grid-2">
@@ -365,6 +383,32 @@
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- Committee Scoping Section -->
+        <div style="background: var(--bg-card); padding: 1rem 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <div class="form-grid-2">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" for="eval-firstChoice">Assigned / Target Committee</label>
+              <select id="eval-firstChoice" class="form-control">
+                <option value="Media">Media</option>
+                <option value="Entrepreneur">Entrepreneur</option>
+                <option value="Operation">Operation</option>
+                <option value="Business Development">Business Development</option>
+                <option value="Talent Management">Talent Management</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" for="eval-interviewCommittee">Interviewing Committee (Sheet)</label>
+              <select id="eval-interviewCommittee" class="form-control">
+                <option value="Media">Media</option>
+                <option value="Entrepreneur">Entrepreneur</option>
+                <option value="Operation">Operation</option>
+                <option value="Business Development">Business Development</option>
+                <option value="Talent Management">Talent Management</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <!-- Committee Section -->
         <div style="background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
           <h4 style="font-size: 1rem; color: var(--red); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 6px;">
@@ -439,8 +483,8 @@
   </footer>
 
   <!-- Scripts -->
-  <script src="auth.js?v=2.2"></script>
-  <script src="app.js?v=2.2"></script>
+  <script src="auth.js?v=2.3"></script>
+  <script src="app.js?v=2.3"></script>
 
   <script>
     // Master UI Controller
@@ -547,6 +591,11 @@
       const addForm = document.getElementById("add-candidate-form");
 
       document.getElementById("btn-open-add-modal").addEventListener("click", () => {
+        const interviewField = document.getElementById("add-interviewCommittee");
+        const userComm = (window.RallyApp && window.RallyApp.getCurrentUserCommittee && window.RallyApp.getCurrentUserCommittee()) || "Media";
+        if (interviewField) {
+          interviewField.value = userComm;
+        }
         addModal.classList.add("active");
       });
 
@@ -567,6 +616,7 @@
           faculty: document.getElementById("add-faculty").value,
           academicYear: document.getElementById("add-academicYear").value,
           firstChoice: document.getElementById("add-firstChoice").value,
+          interviewCommittee: document.getElementById("add-interviewCommittee") ? document.getElementById("add-interviewCommittee").value : document.getElementById("add-firstChoice").value,
           secondChoice: document.getElementById("add-secondChoice").value,
           committeeStatus: document.getElementById("add-committeeStatus").value,
           committeeNotes: document.getElementById("add-notes").value,
