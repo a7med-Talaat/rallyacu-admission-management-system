@@ -335,7 +335,18 @@
       const stored = sessionStorage.getItem("rally_auth_session");
       if (!stored) return null;
       try {
-        return JSON.parse(stored);
+        const sess = JSON.parse(stored);
+        if (sess && sess.id) {
+          const rec = CREDENTIAL_STORE.find(r => r.id === sess.id);
+          if (rec && rec.fallback) {
+            sess.role = rec.fallback.role;
+            sess.badge = rec.fallback.badge;
+            sess.committee = rec.fallback.committee;
+            sess.allowedCommittees = rec.fallback.allowedCommittees || [rec.fallback.committee];
+            sessionStorage.setItem("rally_auth_session", JSON.stringify(sess));
+          }
+        }
+        return sess;
       } catch (e) {
         return null;
       }
