@@ -263,6 +263,141 @@
     }
   }
 
+  // Hardcoded 5 Committee Google Sheet IDs
+  const COMMITTEE_SHEET_IDS = {
+    "Media": "1-U5sawUz0WdoY5O2oMhVqr5fTaDzKAX0DOMfHxWYZT4",
+    "Entrepreneur": "1QGPJG5FXDQPEyiX3yqINaWrrSUOWj3JRU6xrdQIhU2A",
+    "Operation": "1pIeyWTS7tln8ugQIbKONJOdmA5qBCR_1dQ1yTDanPus",
+    "Business Development": "1kQB1WDVgst5_N9TDwcKxbtncw85tk4jfpRjYyWqVI6I",
+    "Talent Management": "1eIG8wln2k9d5Dv0URxLxW8sg2Ri9YGd2h1UbcdgN3z0"
+  };
+
+  // Robust CSV Parser
+  function parseCSV(text) {
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      const next = text[i + 1];
+      if (c === '"') {
+        if (inQuotes && next === '"') {
+          row[row.length - 1] += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (c === ',' && !inQuotes) {
+        row.push('');
+      } else if ((c === '\r' || c === '\n') && !inQuotes) {
+        if (c === '\r' && next === '\n') {
+          i++;
+        }
+        lines.push(row);
+        row = [''];
+      } else {
+        row[row.length - 1] += c;
+      }
+    }
+    if (row.length > 1 || row[0] !== '') {
+      lines.push(row);
+    }
+    return lines;
+  }
+
+  // Directly pull candidates from all 5 Google Sheets via public CSV
+  async function pullDirectFromGoogleSheets() {
+    let totalLoaded = 0;
+    const map = new Map();
+    state.applicants.forEach(a => { if (a && a.id) map.set(a.id, a); });
+
+    for (const [comm, sheetId] of Object.entries(COMMITTEE_SHEET_IDS)) {
+      try {
+        const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        const csvText = await resp.text();
+        const rows = parseCSV(csvText);
+        if (rows.length <= 1) continue;
+
+        const headers = rows[0].map(h => (h || "").trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+        const getIdx = (aliases) => {
+          for (const alias of aliases) {
+            const clean = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const idx = headers.indexOf(clean);
+            if (idx !== -1) return idx;
+          }
+          return -1;
+        };
+
+        const nameIdx = getIdx(["fullname", "name", "candidatename", "applicantname"]);
+        const phoneIdx = getIdx(["phone", "phonenumber", "mobile", "whatsapp", "tele"]);
+        const emailIdx = getIdx(["email", "mail", "gmail"]);
+        const facultyIdx = getIdx(["faculty", "college", "major"]);
+        const yearIdx = getIdx(["academicyear", "year", "grade", "level"]);
+        const statusIdx = getIdx(["status", "committeestatus", "interviewstatus"]);
+        const scoreIdx = getIdx(["score", "committeescore", "rating"]);
+        const notesIdx = getIdx(["notes", "committeenotes", "feedback"]);
+
+        if (nameIdx === -1) continue;
+
+        const cleanCommPrefix = comm.replace(/[^A-Za-z0-9]/g, "").toUpperCase().substring(0, 4);
+
+        for (let r = 1; r < rows.length; r++) {
+          const row = rows[r];
+          const fullName = (row[nameIdx] || "").trim();
+          if (!fullName) continue;
+
+          const phone = phoneIdx !== -1 ? (row[phoneIdx] || "").trim() : "";
+          const email = emailIdx !== -1 ? (row[emailIdx] || "").trim() : "";
+          const faculty = facultyIdx !== -1 ? (row[facultyIdx] || "").trim() : "";
+          const academicYear = yearIdx !== -1 ? (row[yearIdx] || "").trim() : "";
+          const sheetStatus = statusIdx !== -1 ? (row[statusIdx] || "").trim() : "";
+          const sheetScore = scoreIdx !== -1 ? (row[scoreIdx] || "").trim() : "";
+          const sheetNotes = notesIdx !== -1 ? (row[notesIdx] || "").trim() : "";
+
+          const id = `RALLY-${cleanCommPrefix}-${r < 10 ? "0" + r : r}`;
+
+          const existing = map.get(id);
+          const candidateObj = {
+            id: id,
+            fullName: fullName,
+            phone: phone,
+            email: email,
+            faculty: faculty,
+            academicYear: academicYear,
+            firstChoice: comm,
+            interviewCommittee: comm,
+            secondChoice: existing ? existing.secondChoice : "",
+            submissionDate: existing ? existing.submissionDate : new Date().toISOString().split("T")[0],
+            committeeStatus: (existing && existing.committeeStatus && existing.committeeStatus !== "Pending") ? existing.committeeStatus : (sheetStatus || "Pending"),
+            committeeScore: (existing && existing.committeeScore !== undefined && existing.committeeScore !== "") ? existing.committeeScore : (sheetScore || ""),
+            committeeNotes: (existing && existing.committeeNotes) ? existing.committeeNotes : (sheetNotes || ""),
+            hrStatus: (existing && existing.hrStatus) ? existing.hrStatus : "Pending",
+            hrScore: (existing && existing.hrScore !== undefined) ? existing.hrScore : "",
+            hrNotes: (existing && existing.hrNotes) ? existing.hrNotes : "",
+            finalStatus: (existing && existing.finalStatus && existing.finalStatus !== "Pending") ? existing.finalStatus : (sheetStatus || "Pending"),
+            updatedBy: "Google Sheet (" + comm + ")",
+            updatedAt: existing ? existing.updatedAt : new Date().toISOString()
+          };
+
+          map.set(id, candidateObj);
+          totalLoaded++;
+        }
+      } catch (errComm) {
+        console.warn(`Could not pull CSV for ${comm}:`, errComm);
+      }
+    }
+
+    const merged = Array.from(map.values());
+    merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+    state.applicants = merged;
+    saveLocalOnly(merged);
+    await pushToCloud(merged);
+    renderTable();
+    return totalLoaded;
+  }
+
   // Push all candidates to Google Sheet Web App
   async function pushToGoogleSheet(applicantsList) {
     if (!GOOGLE_SHEET_URL) return;
@@ -284,36 +419,57 @@
     }
   }
 
-  // Pull candidates from Google Sheet Web App
+  // Pull candidates from Google Sheets (Directly & via Apps Script)
   async function pullFromGoogleSheet() {
-    if (!GOOGLE_SHEET_URL) {
-      showToast("Please enter and save your Google Apps Script URL first.", false);
-      return;
-    }
-    showToast("Pulling records from Google Sheet...");
+    showToast("Pulling candidate records from all 5 Google Sheets...");
+    let directCount = 0;
     try {
-      const resp = await fetch(GOOGLE_SHEET_URL);
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const data = await resp.json();
-      const sheetApplicants = Array.isArray(data.applicants) ? data.applicants : (Array.isArray(data) ? data : []);
-      if (sheetApplicants.length > 0) {
-        // Merge with existing
-        const map = new Map();
-        sheetApplicants.forEach(a => { if (a && a.id) map.set(a.id, a); });
-        state.applicants.forEach(a => { if (a && a.id && !map.has(a.id)) map.set(a.id, a); });
-        const merged = Array.from(map.values());
-        merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
-        state.applicants = merged;
-        saveLocalOnly(merged);
-        pushToCloud(merged);
-        renderTable();
-        showToast(`Loaded ${sheetApplicants.length} candidates from Google Sheet!`);
-      } else {
-        showToast("Google Sheet is currently empty.");
+      directCount = await pullDirectFromGoogleSheets();
+    } catch (e) {
+      console.warn("Direct pull note:", e);
+    }
+
+    if (GOOGLE_SHEET_URL) {
+      try {
+        const resp = await fetch(GOOGLE_SHEET_URL);
+        if (resp.ok) {
+          const data = await resp.json();
+          const sheetApplicants = Array.isArray(data.applicants) ? data.applicants : (Array.isArray(data) ? data : []);
+          if (sheetApplicants.length > 0) {
+            const map = new Map();
+            state.applicants.forEach(a => { if (a && a.id) map.set(a.id, a); });
+            sheetApplicants.forEach(a => {
+              if (a && a.id) {
+                const prev = map.get(a.id);
+                map.set(a.id, {
+                  ...a,
+                  committeeStatus: prev && prev.committeeStatus && prev.committeeStatus !== "Pending" ? prev.committeeStatus : (a.committeeStatus || "Pending"),
+                  committeeScore: prev && prev.committeeScore !== undefined && prev.committeeScore !== "" ? prev.committeeScore : (a.committeeScore || ""),
+                  committeeNotes: prev && prev.committeeNotes ? prev.committeeNotes : (a.committeeNotes || ""),
+                  hrStatus: prev && prev.hrStatus && prev.hrStatus !== "Pending" ? prev.hrStatus : (a.hrStatus || "Pending"),
+                  hrScore: prev && prev.hrScore !== undefined && prev.hrScore !== "" ? prev.hrScore : (a.hrScore || ""),
+                  hrNotes: prev && prev.hrNotes ? prev.hrNotes : (a.hrNotes || ""),
+                  finalStatus: prev && prev.finalStatus && prev.finalStatus !== "Pending" ? prev.finalStatus : (a.finalStatus || "Pending")
+                });
+              }
+            });
+            const merged = Array.from(map.values());
+            merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+            state.applicants = merged;
+            saveLocalOnly(merged);
+            await pushToCloud(merged);
+            renderTable();
+          }
+        }
+      } catch (err) {
+        console.warn("Apps Script fetch notice:", err);
       }
-    } catch (err) {
-      console.error("Google Sheet pull error:", err);
-      showToast("Could not pull from Google Sheet. Check permissions.", false);
+    }
+
+    if (state.applicants.length > 0) {
+      showToast(`Sheets Synced: ${state.applicants.length} candidates loaded across all committees!`);
+    } else {
+      showToast("Sheets are currently empty. Add candidates to Row 2+ in your Google Sheets and click Pull again!");
     }
   }
 

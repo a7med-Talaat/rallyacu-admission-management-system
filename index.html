@@ -515,16 +515,18 @@
 
         <div style="background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
           <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--gold); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
-            <span>⚡</span> 60-Second Setup Guide
+            <span>⚡</span> Multi-Committee Google Sheet Setup (60 Seconds)
           </h4>
           <ol style="margin: 0; padding-left: 1.25rem; font-size: 0.825rem; color: var(--text-secondary); line-height: 1.6;">
-            <li>Open a new or existing Google Sheet in Google Drive.</li>
+            <li>In your Google Sheet, create separate tabs for each committee: <strong>Media</strong>, <strong>Entrepreneur</strong>, <strong>Operation</strong>, <strong>Business Development</strong>, <strong>Talent Management</strong>.</li>
+            <li>In Row 1 of each tab, add headers: <code>Full Name</code>, <code>Phone</code>, <code>Email</code>, <code>Faculty</code>, <code>Academic Year</code>.</li>
+            <li>Paste your candidate names and numbers into each committee's tab.</li>
             <li>In the top menu, click <strong>Extensions</strong> &rarr; <strong>Apps Script</strong>.</li>
-            <li>Delete existing code, paste the script below, and save (Ctrl+S).</li>
+            <li>Delete any existing code, paste the script below, and press <strong>Ctrl+S</strong> to save.</li>
             <li>Click <strong>Deploy</strong> (blue button, top right) &rarr; <strong>New deployment</strong>.</li>
             <li>Click the gear icon ⚙️ next to "Select type", choose <strong>Web app</strong>.</li>
             <li>Set <strong>Execute as:</strong> <em>Me</em>, and <strong>Who has access:</strong> <em>Anyone</em>.</li>
-            <li>Click <strong>Deploy</strong>, copy the Web app URL, paste it into the field above and click Save!</li>
+            <li>Click <strong>Deploy</strong>, copy the Web app URL, paste it into the field above and click <strong>Save &amp; Sync Now</strong>!</li>
           </ol>
         </div>
 
@@ -732,50 +734,205 @@
       const sheetUrlInput = document.getElementById("google-sheet-url-input");
       const appsScriptTextarea = document.getElementById("apps-script-code");
 
-      const APPS_SCRIPT_SNIPPET = `function doGet(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var rows = sheet.getDataRange().getValues();
-  if (rows.length <= 1) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok", applicants: [] }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var headers = rows[0];
-  var applicants = [];
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var obj = {};
-    for (var j = 0; j < headers.length; j++) {
-      obj[headers[j]] = row[j];
+      const APPS_SCRIPT_SNIPPET = `/**
+ * Rally ACU Admissions Management System - Unified 5-Committee Google Sheets Sync
+ * 
+ * Pre-configured with your 5 Committee Sheet IDs:
+ * - Media: 1-U5sawUz0WdoY5O2oMhVqr5fTaDzKAX0DOMfHxWYZT4
+ * - Entrepreneur: 1QGPJG5FXDQPEyiX3yqINaWrrSUOWj3JRU6xrdQIhU2A
+ * - Operation: 1pIeyWTS7tln8ugQIbKONJOdmA5qBCR_1dQ1yTDanPus
+ * - Business Development: 1kQB1WDVgst5_N9TDwcKxbtncw85tk4jfpRjYyWqVI6I
+ * - Talent Management: 1eIG8wln2k9d5Dv0URxLxW8sg2Ri9YGd2h1UbcdgN3z0
+ */
+
+var COMMITTEE_SHEETS = {
+  "Media": "1-U5sawUz0WdoY5O2oMhVqr5fTaDzKAX0DOMfHxWYZT4",
+  "Entrepreneur": "1QGPJG5FXDQPEyiX3yqINaWrrSUOWj3JRU6xrdQIhU2A",
+  "Operation": "1pIeyWTS7tln8ugQIbKONJOdmA5qBCR_1dQ1yTDanPus",
+  "Business Development": "1kQB1WDVgst5_N9TDwcKxbtncw85tk4jfpRjYyWqVI6I",
+  "Talent Management": "1eIG8wln2k9d5Dv0URxLxW8sg2Ri9YGd2h1UbcdgN3z0"
+};
+
+function doGet(e) {
+  var allApplicants = [];
+  
+  for (var comm in COMMITTEE_SHEETS) {
+    var sheetId = COMMITTEE_SHEETS[comm];
+    try {
+      var ss = SpreadsheetApp.openById(sheetId);
+      var sheet = ss.getActiveSheet();
+      var data = sheet.getDataRange().getValues();
+      if (!data || data.length <= 1) continue;
+      
+      var headers = data[0];
+      var colMap = {};
+      for (var c = 0; c < headers.length; c++) {
+        var h = String(headers[c]).toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (h) colMap[h] = c;
+      }
+      
+      function getVal(row, aliases) {
+        for (var a = 0; a < aliases.length; a++) {
+          var key = aliases[a].toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (colMap.hasOwnProperty(key)) {
+            var val = row[colMap[key]];
+            return (val !== undefined && val !== null) ? String(val).trim() : "";
+          }
+        }
+        return "";
+      }
+      
+      for (var r = 1; r < data.length; r++) {
+        var row = data[r];
+        var fullName = getVal(row, ["fullname", "name", "candidatename", "applicantname"]);
+        if (!fullName) continue;
+        
+        var phone = getVal(row, ["phone", "phonenumber", "mobile", "whatsapp", "tele", "tel"]);
+        var email = getVal(row, ["email", "mail", "gmail"]);
+        var faculty = getVal(row, ["faculty", "college", "major"]);
+        var academicYear = getVal(row, ["academicyear", "year", "grade", "level"]);
+        var firstChoice = getVal(row, ["firstchoice", "committee"]) || comm;
+        var interviewCommittee = getVal(row, ["interviewcommittee", "assignedcommittee"]) || comm;
+        var secondChoice = getVal(row, ["secondchoice", "second"]);
+        
+        var id = getVal(row, ["id", "candidateid", "code"]);
+        if (!id) {
+          var cleanPrefix = comm.replace(/[^A-Za-z0-9]/g, "").toUpperCase().substring(0, 4);
+          id = "RALLY-" + cleanPrefix + "-" + (r < 10 ? "0" + r : r);
+        }
+        
+        var commStatus = getVal(row, ["committeestatus", "status", "interviewstatus"]) || "Pending";
+        var commScore = getVal(row, ["committeescore", "score", "rating"]);
+        var commNotes = getVal(row, ["committeenotes", "notes", "feedback"]);
+        var hrStatus = getVal(row, ["hrstatus", "hr_status"]);
+        var hrScore = getVal(row, ["hrscore", "hr_score"]);
+        var hrNotes = getVal(row, ["hrnotes", "hr_notes"]);
+        var finalStatus = getVal(row, ["finalstatus", "final_status"]) || "Pending";
+        
+        allApplicants.push({
+          id: id,
+          fullName: fullName,
+          email: email,
+          phone: phone,
+          faculty: faculty,
+          academicYear: academicYear,
+          firstChoice: firstChoice,
+          interviewCommittee: interviewCommittee,
+          secondChoice: secondChoice,
+          submissionDate: new Date().toISOString().split("T")[0],
+          committeeStatus: commStatus,
+          committeeScore: commScore ? (Number(commScore) || commScore) : "",
+          committeeNotes: commNotes,
+          hrStatus: hrStatus || "",
+          hrScore: hrScore || "",
+          hrNotes: hrNotes || "",
+          finalStatus: finalStatus,
+          updatedBy: "Google Sheet (" + comm + ")",
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.warn("Error reading sheet for " + comm + ": " + err);
     }
-    applicants.push(obj);
   }
-  return ContentService.createTextOutput(JSON.stringify({ status: "ok", applicants: applicants }))
-    .setMimeType(ContentService.MimeType.JSON);
+  
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "ok",
+    count: allApplicants.length,
+    applicants: allApplicants
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     var payload = JSON.parse(e.postData.contents);
     var applicants = payload.applicants || [];
-    var headers = [
-      "id", "fullName", "email", "phone", "faculty", "academicYear",
-      "firstChoice", "interviewCommittee", "secondChoice", "submissionDate",
-      "committeeStatus", "committeeScore", "committeeNotes",
-      "hrStatus", "hrScore", "hrNotes", "finalStatus", "updatedBy", "updatedAt"
-    ];
-    sheet.clear();
-    sheet.appendRow(headers);
+    
+    var commMap = {};
     for (var i = 0; i < applicants.length; i++) {
       var app = applicants[i];
-      var row = [];
-      for (var j = 0; j < headers.length; j++) {
-        var val = app[headers[j]];
-        row.push(val !== undefined && val !== null ? val : "");
+      var targetComm = app.interviewCommittee || app.firstChoice || "Media";
+      
+      var matchedKey = null;
+      for (var k in COMMITTEE_SHEETS) {
+        if (k.toLowerCase() === targetComm.toLowerCase() ||
+            targetComm.toLowerCase().indexOf(k.toLowerCase()) !== -1 ||
+            k.toLowerCase().indexOf(targetComm.toLowerCase()) !== -1) {
+          matchedKey = k;
+          break;
+        }
       }
-      sheet.appendRow(row);
+      if (!matchedKey) matchedKey = "Media";
+      
+      if (!commMap[matchedKey]) commMap[matchedKey] = [];
+      commMap[matchedKey].push(app);
     }
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", count: applicants.length }))
+    
+    for (var comm in commMap) {
+      var sheetId = COMMITTEE_SHEETS[comm];
+      if (!sheetId) continue;
+      
+      try {
+        var ss = SpreadsheetApp.openById(sheetId);
+        var sheet = ss.getActiveSheet();
+        var data = sheet.getDataRange().getValues();
+        var headers = data[0].map(function(h) { return String(h).trim(); });
+        
+        function findCol(candidates) {
+          for (var c = 0; c < headers.length; c++) {
+            var clean = headers[c].toLowerCase().replace(/[^a-z0-9]/g, "");
+            for (var k = 0; k < candidates.length; k++) {
+              if (clean === candidates[k].toLowerCase().replace(/[^a-z0-9]/g, "")) return c;
+            }
+          }
+          return -1;
+        }
+        
+        function ensureCol(headerName) {
+          var idx = findCol([headerName]);
+          if (idx === -1) {
+            idx = headers.length;
+            sheet.getRange(1, idx + 1).setValue(headerName);
+            headers.push(headerName);
+          }
+          return idx + 1;
+        }
+        
+        var idCol = findCol(["id", "candidateid", "code"]);
+        var nameCol = findCol(["fullname", "name", "candidatename"]);
+        
+        var appsToUpdate = commMap[comm];
+        for (var a = 0; a < appsToUpdate.length; a++) {
+          var app = appsToUpdate[a];
+          var targetRow = -1;
+          
+          for (var r = 1; r < data.length; r++) {
+            if (idCol !== -1 && String(data[r][idCol]).trim() === String(app.id).trim()) {
+              targetRow = r + 1;
+              break;
+            }
+            if (nameCol !== -1 && String(data[r][nameCol]).trim().toLowerCase() === String(app.fullName).trim().toLowerCase()) {
+              targetRow = r + 1;
+              break;
+            }
+          }
+          
+          if (targetRow !== -1) {
+            if (app.committeeStatus) sheet.getRange(targetRow, ensureCol("Status")).setValue(app.committeeStatus);
+            if (app.committeeScore !== undefined && app.committeeScore !== "") sheet.getRange(targetRow, ensureCol("Score")).setValue(app.committeeScore);
+            if (app.committeeNotes) sheet.getRange(targetRow, ensureCol("Notes")).setValue(app.committeeNotes);
+            if (app.hrStatus) sheet.getRange(targetRow, ensureCol("HR Status")).setValue(app.hrStatus);
+            if (app.hrScore !== undefined && app.hrScore !== "") sheet.getRange(targetRow, ensureCol("HR Score")).setValue(app.hrScore);
+            if (app.hrNotes) sheet.getRange(targetRow, ensureCol("HR Notes")).setValue(app.hrNotes);
+            if (app.finalStatus) sheet.getRange(targetRow, ensureCol("Final Status")).setValue(app.finalStatus);
+          }
+        }
+      } catch (errComm) {
+        console.warn("Error updating sheet " + comm + ": " + errComm);
+      }
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
@@ -808,6 +965,7 @@ function doPost(e) {
         const val = sheetUrlInput.value.trim();
         localStorage.setItem("rally_google_sheet_url", val);
         window.RallyApp.updateGoogleSheetUrl(val);
+        window.RallyApp.pullFromGoogleSheet();
         sheetModal.classList.remove("active");
       });
 
