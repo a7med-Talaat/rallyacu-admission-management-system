@@ -14,7 +14,8 @@
   ];
 
   const MASTER_STORAGE_KEY = "rally_applicants_v2";
-  const CLOUD_STORAGE_URL = "https://extendsclass.com/api/json-storage/bin/fadcdff";
+  const CLOUD_OBJECT_ID = "ff808181a09d98f701a0df4b88c51ff0";
+  const CLOUD_API_URL = `https://api.restful-api.dev/objects/${CLOUD_OBJECT_ID}`;
 
   let isSyncing = false;
   let syncIntervalTimer = null;
@@ -138,12 +139,15 @@
     try {
       updateSyncIndicator("syncing", "Saving to Cloud...");
       const payload = {
-        version: "1.0",
-        lastUpdated: new Date().toISOString(),
-        applicants: applicantsList || []
+        name: "Rally ACU Candidates DB",
+        data: {
+          version: "2.0",
+          lastUpdated: new Date().toISOString(),
+          applicants: applicantsList || []
+        }
       };
 
-      const resp = await fetch(CLOUD_STORAGE_URL, {
+      const resp = await fetch(CLOUD_API_URL, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -154,6 +158,7 @@
       if (resp.ok) {
         updateSyncIndicator("success", `Cloud Live (${(applicantsList || []).length})`);
       } else {
+        console.warn("Cloud save HTTP status:", resp.status);
         updateSyncIndicator("error", "Sync Pending");
       }
     } catch (e) {
@@ -169,7 +174,7 @@
     if (!silent) updateSyncIndicator("syncing", "Syncing Cloud...");
 
     try {
-      const resp = await fetch(CLOUD_STORAGE_URL, {
+      const resp = await fetch(CLOUD_API_URL, {
         method: "GET",
         headers: { "Accept": "application/json" }
       });
@@ -178,8 +183,9 @@
         throw new Error("Cloud fetch returned HTTP " + resp.status);
       }
 
-      const cloudData = await resp.json();
-      const cloudApplicants = Array.isArray(cloudData) ? cloudData : (cloudData.applicants || []);
+      const cloudObj = await resp.json();
+      const cloudData = cloudObj && cloudObj.data ? cloudObj.data : cloudObj;
+      const cloudApplicants = Array.isArray(cloudData.applicants) ? cloudData.applicants : (Array.isArray(cloudData) ? cloudData : []);
 
       // Get local candidates
       const localList = state.applicants && state.applicants.length > 0 ? state.applicants : getAllApplicantsFromStorage();
@@ -809,13 +815,13 @@
     // 2. Fetch live data from Cloud and merge immediately
     syncWithCloud(true);
 
-    // 3. Setup periodic background auto-sync polling every 20 seconds
+    // 3. Setup periodic background auto-sync polling every 10 seconds
     if (syncIntervalTimer) clearInterval(syncIntervalTimer);
     syncIntervalTimer = setInterval(() => {
       if (!document.hidden) {
         syncWithCloud(true);
       }
-    }, 20000);
+    }, 10000);
   }
 
   // Expose methods to global scope
