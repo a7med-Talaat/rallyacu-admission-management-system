@@ -86,8 +86,8 @@
         name: "Mariam Ahmed",
         committee: "Talent Management",
         allowedCommittees: ["Talent Management"],
-        role: "Head of Talent Management",
-        badge: "Talent Management",
+        role: "Talent Management Lead",
+        badge: "Talent Management Lead",
         isAdmin: false
       }
     },
@@ -155,8 +155,8 @@
         allowedCommittees: [
           "Talent Management"
         ],
-        role: "Talent Management Lead",
-        badge: "Talent Management",
+        role: "Head of Talent Management",
+        badge: "Head of Talent Management",
         isAdmin: false
       }
     },
