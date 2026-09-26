@@ -36,6 +36,12 @@
 
         <!-- User profile area (visible only when logged in) -->
         <div id="header-user-section" style="display: none; align-items: center; gap: 0.75rem;">
+          <!-- Live Cloud Sync Indicator & Refresh -->
+          <button class="btn btn-secondary btn-sm" id="btn-cloud-sync" title="Live Cloud Database Sync (Click to Refresh)" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+            <span id="cloud-sync-icon" style="display: inline-block;">🟢</span>
+            <span id="cloud-sync-text">Cloud Live</span>
+          </button>
+
           <div class="user-profile-badge">
             <div class="avatar-circle" id="user-avatar-initials">AT</div>
             <div>
@@ -483,8 +489,8 @@
   </footer>
 
   <!-- Scripts -->
-  <script src="auth.js?v=2.3"></script>
-  <script src="app.js?v=2.3"></script>
+  <script src="auth.js?v=3.0"></script>
+  <script src="app.js?v=3.0"></script>
 
   <script>
     // Master UI Controller
@@ -585,6 +591,15 @@
       document.getElementById("btn-backup-json").addEventListener("click", () => {
         window.RallyApp.backupData();
       });
+
+      const btnCloudSync = document.getElementById("btn-cloud-sync");
+      if (btnCloudSync) {
+        btnCloudSync.addEventListener("click", () => {
+          if (window.RallyApp && window.RallyApp.syncCloud) {
+            window.RallyApp.syncCloud();
+          }
+        });
+      }
 
       // Add Candidate Modal handlers
       const addModal = document.getElementById("add-candidate-modal");

@@ -1,7 +1,7 @@
 /**
  * RALLY ACU - ADMISSIONS & INTERVIEW SHEET LOGIC
  * Manages applicants, interview evaluations (Committee & HR),
- * admission progress, filtering, CSV export, and state persistence.
+ * admission progress, filtering, CSV export, and REAL-TIME CLOUD DATABASE PERSISTENCE.
  */
 
 (function () {
@@ -14,8 +14,12 @@
   ];
 
   const MASTER_STORAGE_KEY = "rally_applicants_v2";
+  const CLOUD_STORAGE_URL = "https://extendsclass.com/api/json-storage/bin/fadcdff";
 
-  // Dedicated Database Table Key per Committee
+  let isSyncing = false;
+  let syncIntervalTimer = null;
+
+  // Dedicated Database Table Key per Committee (Local Cache)
   function getCommitteeDbKey(committeeName) {
     const slug = (committeeName || "general").toLowerCase().replace(/[^a-z0-9]/g, "_");
     return `rally_db_committee_${slug}`;
@@ -37,6 +41,7 @@
     localStorage.setItem(key, JSON.stringify(list || []));
   }
 
+  // Get local cache
   function getAllApplicantsFromStorage() {
     const raw = localStorage.getItem(MASTER_STORAGE_KEY);
     if (raw) {
@@ -92,19 +97,33 @@
     }, 3200);
   }
 
-  // Load applicants from unified storage
-  function loadApplicants() {
-    localStorage.removeItem("rally_acu_interview_sheet_data_v1");
-    state.applicants = getAllApplicantsFromStorage();
+  // Header cloud sync indicator helper
+  function updateSyncIndicator(status, text) {
+    const iconEl = document.getElementById("cloud-sync-icon");
+    const textEl = document.getElementById("cloud-sync-text");
+    if (!textEl) return;
+    textEl.textContent = text;
+    if (iconEl) {
+      if (status === "syncing") {
+        iconEl.textContent = "⏳";
+        iconEl.classList.add("syncing-spinner");
+      } else if (status === "success") {
+        iconEl.textContent = "🟢";
+        iconEl.classList.remove("syncing-spinner");
+      } else if (status === "error") {
+        iconEl.textContent = "⚠️";
+        iconEl.classList.remove("syncing-spinner");
+      }
+    }
   }
 
-  // Save applicants back to unified storage and per-committee tables
-  function saveApplicants() {
-    localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(state.applicants || []));
+  // Save to local cache only
+  function saveLocalOnly(list) {
+    localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(list || []));
 
-    // Also sync to per-committee tables for any legacy references
+    // Also sync to per-committee tables for local caching
     ALL_COMMITTEES.forEach(comm => {
-      const commItems = state.applicants.filter(a =>
+      const commItems = (list || []).filter(a =>
         a.firstChoice === comm ||
         a.interviewCommittee === comm ||
         a.secondChoice === comm ||
@@ -112,6 +131,122 @@
       );
       saveCommitteeDb(comm, commItems);
     });
+  }
+
+  // Push candidates list to cloud database
+  async function pushToCloud(applicantsList) {
+    try {
+      updateSyncIndicator("syncing", "Saving to Cloud...");
+      const payload = {
+        version: "1.0",
+        lastUpdated: new Date().toISOString(),
+        applicants: applicantsList || []
+      };
+
+      const resp = await fetch(CLOUD_STORAGE_URL, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (resp.ok) {
+        updateSyncIndicator("success", `Cloud Live (${(applicantsList || []).length})`);
+      } else {
+        updateSyncIndicator("error", "Sync Pending");
+      }
+    } catch (e) {
+      console.warn("Cloud push notice:", e);
+      updateSyncIndicator("error", "Sync Pending");
+    }
+  }
+
+  // Fetch candidates from live cloud and merge with local cache
+  async function syncWithCloud(silent = false) {
+    if (isSyncing) return;
+    isSyncing = true;
+    if (!silent) updateSyncIndicator("syncing", "Syncing Cloud...");
+
+    try {
+      const resp = await fetch(CLOUD_STORAGE_URL, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!resp.ok) {
+        throw new Error("Cloud fetch returned HTTP " + resp.status);
+      }
+
+      const cloudData = await resp.json();
+      const cloudApplicants = Array.isArray(cloudData) ? cloudData : (cloudData.applicants || []);
+
+      // Get local candidates
+      const localList = state.applicants && state.applicants.length > 0 ? state.applicants : getAllApplicantsFromStorage();
+      
+      const map = new Map();
+      let hasLocalUnsavedToCloud = false;
+
+      // 1. Load all records from Cloud
+      cloudApplicants.forEach(app => {
+        if (app && app.id) map.set(app.id, app);
+      });
+
+      // 2. Merge local records: if user or friend added candidates locally, merge into cloud!
+      localList.forEach(localApp => {
+        if (localApp && localApp.id) {
+          if (!map.has(localApp.id)) {
+            // New locally created candidate -> merge and upload to cloud
+            map.set(localApp.id, localApp);
+            hasLocalUnsavedToCloud = true;
+          } else {
+            // Both exist: check timestamp or updated details
+            const cloudItem = map.get(localApp.id);
+            const localTime = new Date(localApp.updatedAt || localApp.submissionDate || 0).getTime();
+            const cloudTime = new Date(cloudItem.updatedAt || cloudItem.submissionDate || 0).getTime();
+            if (localTime > cloudTime) {
+              map.set(localApp.id, localApp);
+              hasLocalUnsavedToCloud = true;
+            }
+          }
+        }
+      });
+
+      const merged = Array.from(map.values());
+      // Sort newest first
+      merged.sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+
+      state.applicants = merged;
+      saveLocalOnly(merged);
+      renderTable();
+
+      // If local had candidates not in cloud yet (e.g. friend added on phone), push to cloud now!
+      if (hasLocalUnsavedToCloud) {
+        await pushToCloud(merged);
+      }
+
+      updateSyncIndicator("success", `Cloud Live (${merged.length})`);
+      if (!silent) {
+        showToast(`Cloud Synced: ${merged.length} total candidates in system`);
+      }
+    } catch (err) {
+      console.warn("Cloud sync warning:", err);
+      updateSyncIndicator("error", "Local Mode");
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  // Save applicants (saves locally AND immediately pushes to cloud)
+  function saveApplicants() {
+    saveLocalOnly(state.applicants);
+    pushToCloud(state.applicants);
+  }
+
+  // Load applicants from cache first, then cloud
+  function loadApplicants() {
+    localStorage.removeItem("rally_acu_interview_sheet_data_v1");
+    state.applicants = getAllApplicantsFromStorage();
   }
 
   // Compute overall status from committee & HR checks
@@ -371,6 +506,7 @@
     item.committeeStatus = newStatus;
     item.finalStatus = deriveAdmissionStatus(item.committeeStatus, item.hrStatus);
     item.updatedBy = state.user.name;
+    item.updatedAt = new Date().toISOString();
     saveApplicants();
     renderTable();
     showToast(`Updated ${item.fullName.split(' ')[0]}'s Committee status to "${newStatus}"`);
@@ -384,6 +520,7 @@
     item.hrStatus = newStatus;
     item.finalStatus = deriveAdmissionStatus(item.committeeStatus, item.hrStatus);
     item.updatedBy = state.user.name;
+    item.updatedAt = new Date().toISOString();
     saveApplicants();
     renderTable();
     showToast(`Updated ${item.fullName.split(' ')[0]}'s HR status to "${newStatus}"`);
@@ -430,6 +567,7 @@
       addedByCommittee: userDefaultComm,
       addedBy: (state.user && state.user.name) || "Interviewer",
       submissionDate: new Date().toISOString().split("T")[0],
+      updatedAt: new Date().toISOString(),
       committeeStatus: formData.committeeStatus || "Pending",
       committeeNotes: (formData.committeeNotes || "").trim(),
       committeeScore: formData.committeeScore ? parseInt(formData.committeeScore) : null,
@@ -519,6 +657,7 @@
 
     item.finalStatus = deriveAdmissionStatus(item.committeeStatus, item.hrStatus);
     item.updatedBy = state.user.name;
+    item.updatedAt = new Date().toISOString();
 
     saveApplicants();
     renderTable();
@@ -608,6 +747,8 @@
     state.user = user;
     user.allowedCommittees = user.allowedCommittees || [user.committee];
     state.selectedCommittee = "ALL";
+
+    // 1. Immediately load local cache (0ms instant render)
     loadApplicants();
 
     // Populate user details in UI
@@ -664,11 +805,25 @@
     }
 
     renderTable();
+
+    // 2. Fetch live data from Cloud and merge immediately
+    syncWithCloud(true);
+
+    // 3. Setup periodic background auto-sync polling every 20 seconds
+    if (syncIntervalTimer) clearInterval(syncIntervalTimer);
+    syncIntervalTimer = setInterval(() => {
+      if (!document.hidden) {
+        syncWithCloud(true);
+      }
+    }, 20000);
   }
 
   // Expose methods to global scope
   window.RallyApp = {
     initDashboard: initUserDashboard,
+    syncCloud: function () {
+      syncWithCloud(false);
+    },
     getCurrentUserCommittee: function () {
       if (!state.user) return "Media";
       if (state.selectedCommittee && state.selectedCommittee !== "ALL") return state.selectedCommittee;

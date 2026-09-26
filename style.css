@@ -1137,3 +1137,14 @@ body {
   }
 }
 
+/* Cloud sync spinner */
+@keyframes spinSync {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.syncing-spinner {
+  display: inline-block;
+  animation: spinSync 0.8s linear infinite;
+}
+
+
